@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>JavaScript code style survey</title>
+<script src='https://d3js.org/d3.v4.min.js'></script>
+<script src='https://cdn.jsdelivr.net/g/lodash@4(lodash.min.js+lodash.fp.min.js)'></script>
+<style>
+body {
+	font-family: Helvetica Neue, sans-serif;
+}
+</style>
+<body>
+<h1>JavaScript code style survey</h1>
+<script>
+// lodash/fp
+const { countBy, entries, flatten, flow, get, identity, map, mapKeys, mapValues, reverse, sortBy, uniq } = _;
+const mapValuesWithKey = _.mapValues.convert({ cap: false });
+
+const findByKey = (values, key) => values.find(v => v.key === key);
+
+const barSize = 14;
+const gapSize = 4;
+const outerGapSize = 2 * gapSize;
+const fontSize = 13;
+const colors = [
+	'#c44547',
+	'#799ac1',
+]
+const baseColor = '#333';
+const lineColor = '#ccc';
+const serieNames = [
+	'Top npm',
+	'Survey',
+];
+const charts = [
+	{ key: 'Indentation', title: 'Indentation' },
+	{ key: 'Semicolons', title: 'Semicolons' },
+	{ key: 'Style', title: 'Linter presets' },
+	{ key: 'Lint', title: 'Linters' },
+];
+const normalizationRules = {
+	// Name, URL, Indentation, Semicolons, Style, Lint, Skip
+	top100: {
+		keys: {
+		},
+		values: {
+			Indentation: {
+				'2': '2 spaces',
+				'4': '4 spaces',
+				'tab': 'Tabs',
+			},
+			Semicolons: {
+				'no': 'No',
+				'yes': 'Yes',
+			},
+			Style: {
+				'': 'No',
+				'airbnb-base': 'AirBnb',
+				'standard': 'Standard',
+				'xo': 'xo',
+				'eslint:recommended': 'ESLint',
+			},
+			Lint: {
+				'': 'No',
+				'standard': 'Standard',
+				'xo': 'xo',
+				'eslint': 'ESLint',
+				'jshint': 'JSHint',
+				'jscs': 'JSCS',
+			},
+		}
+	},
+	// "Timestamp","Indentation in JavaScript files?","Do you use semicolons in JavaScript?","Do you use a linter preset?","What tools do you use to validate code style?"
+	survey: {
+		keys: {
+			'Indentation in JavaScript files?': 'Indentation',
+			'Do you use semicolons in JavaScript?': 'Semicolons',
+			'Do you use a linter preset?': 'Style',
+			'What tools do you use to validate code style?': 'Lint',
+		},
+		values: {
+			Indentation: {
+				'2 spaces': '2 spaces',
+				'4 spaces': '4 spaces',
+				'tabs': 'Tabs',
+				"don't know. i use 4 spaces": 'Tabs',
+				'tabs of 2 spaces': 'Tabs',
+				'tabs (2 spaces)': 'Tabs',
+				'tabs for indentation, spaces for visual alignment': 'Tabs',
+			},
+			Style: {
+				'don’t use any': 'No',
+				'airbnb': 'AirBnb',
+				'airbnb + some custom rules': 'AirBnb',
+				'airbnb with some modifications': 'AirBnb',
+				'airbnb based, custom rules matching existing company guidelines': 'AirBnb',
+				'customized airbnb': 'AirBnb',
+				'extended airbnb': 'AirBnb',
+				'modified airbnb': 'AirBnb',
+				'modified version of airbnb': 'AirBnb',
+				'airbnb with some overrides': 'AirBnb',
+				'derived from airbnb, only a few modifications': 'AirBnb',
+				'airbnb + some modifications': 'AirBnb',
+				'airbnb + tweaks': 'AirBnb',
+				'customized airbnB': 'AirBnb',
+				'standard': 'Standard',
+				'standard + some extras': 'Standard',
+				'xo': 'xo',
+				'eslint:recommended': 'ESLint',
+			},
+			Lint: {
+				'': 'No',
+				'don\'t use': 'No',
+				'-': 'No',
+				'none': 'No',
+				'eslint': 'ESLint',
+				'jshint': 'JSHint',
+				'jscs': 'JSCS',
+				'standard': 'Standard',
+				'xo': 'xo',
+				'prettier': 'Prettier',
+				'tslint': 'TSLint',
+				'typescript': 'TSLint',
+			},
+		},
+	},
+};
+
+function normalize(data, rules, name) {
+	console.group(name);
+	const result = map(flow(
+		// Rename fields
+		mapKeys(key => rules.keys[key] || key),
+		// Normalize values
+		mapValuesWithKey((value, key) => {
+			if (/;/.test(value)) {
+				value = value.split(';');
+			}
+			else {
+				value = [value];
+			}
+			if (rules.values[key]) {
+				value = value.map(v => {
+					if (rules.values[key][v.toLowerCase()]) {
+						return rules.values[key][v.toLowerCase()];
+					}
+					console.log(`Other answer for ${key}: ${v}`);
+					return 'Other';
+				});
+			}
+			return value;
+		})
+	))(data);
+	console.groupEnd();
+	return result;
+}
+
+function loadNpm() {
+	return new Promise(resolve => {
+		d3.csv('npm.csv', data => {
+			// Skip non-JS projects
+			data = data.filter(d => !d.Skip);
+
+			resolve(normalize(data, normalizationRules.top100, serieNames[0]));
+		});
+	});
+}
+
+function loadSurvey() {
+	return new Promise(resolve => {
+		d3.csv('survey.csv', data => {
+			resolve(normalize(data, normalizationRules.survey, serieNames[1]));
+		});
+	});
+}
+
+function addChart(allData, field, title) {
+	// Format the data
+	const series = allData.map(array => {
+		return flow(
+			// Take needed field
+			map(field),
+			flatten,
+			// Group by value
+			countBy(identity),
+			// Convert object to array of objects
+			entries,
+			map(([key, value]) => {
+				return {
+					percent: value / array.length,
+					value,
+					key,
+				};
+			})
+		)(array);
+	});
+
+	// All values from all series
+	const allValues = flow(
+		flatten,
+		map('percent')
+	)(series);
+
+	// All unique keys from all series
+	const allKeys = flow(
+		flatten,
+		map('key'),
+		uniq,
+		sortBy(value => {
+			if (value === 'Other') {
+				return 'zz';
+			}
+			if (value === 'Yes') {
+				return 'A';
+			}
+			if (value === 'No') {
+				return 'AA';
+			}
+			return value.toLowerCase();
+		}),
+		reverse
+	)(series);
+
+	// Set the dimensions and margins of the graph
+	const margin = {top: 0, right: 50, bottom: 0, left: 70};
+	const width = 800 - margin.left - margin.right;
+	const rowHeight = barSize * 2 + gapSize;
+	const numRows = allKeys.length;
+	const height = (numRows * rowHeight) + ((numRows - 1) * barSize) + (2 * outerGapSize);
+
+	// Set the ranges
+	const y = d3.scaleBand()
+		.range([height, 0])
+		.paddingInner(barSize / rowHeight)
+		.paddingOuter(outerGapSize / rowHeight);
+	const x = d3.scaleLinear()
+		.range([0, width]);
+
+	// Add heading
+	const heading = document.createElement('h2');
+	heading.innerHTML = title;
+	document.body.appendChild(heading);
+
+	// Append the svg object to the body of the page
+	// Append a 'group' element to 'svg'
+	// Moves the 'group' element to the top left margin
+	var svg = d3.select('body')
+		.append('svg')
+			.attr('xmlns', 'http://www.w3.org/2000/svg')
+			.attr('font-family', 'Helvetica Neue, sans-serif')
+			.attr('width', width + margin.left + margin.right)
+			.attr('height', height + margin.top + margin.bottom)
+		.append('g')
+			.attr('transform', `translate(${margin.left}, ${margin.top})`);
+
+	// Scale the range of the data in the domains
+	x.domain([0, d3.max(allValues)])
+	y.domain(allKeys);
+
+	// Append the rectangles for the bar chart
+	addBars(svg, x, y, allKeys, series[0], -1, colors[0]);
+	addBars(svg, x, y, allKeys, series[1], +1, colors[1]);
+
+	// Add the y Axis
+	const leftAxis = svg.append('g')
+		.call(
+			d3.axisLeft(y)
+				.tickSizeInner(0)
+				.tickSizeOuter(0)
+		);
+	leftAxis.selectAll('.domain')
+		.attr('stroke', lineColor);
+	leftAxis.selectAll('text')
+		.attr('font-size', fontSize)
+		.attr('fill', baseColor);
+
+	// Add legend
+	var legend = svg.append('g')
+		.attr('text-anchor', 'end')
+			.selectAll('g')
+			.data(reverse(serieNames))
+			.enter()
+				.append('g')
+				.attr('transform', (d, i) => `translate(${margin.right}, ${height - 3 - ((i + 1) * (barSize + gapSize))})`);
+	legend.append('rect')
+		.attr('x', width - barSize)
+		.attr('width', barSize)
+		.attr('height', barSize)
+		.attr('fill', d3.scaleOrdinal().range(reverse(colors)));
+	legend.append('text')
+		.attr('font-size', fontSize)
+		.attr('fill', baseColor)
+		.attr('x', width - barSize - gapSize)
+		.attr('y', barSize / 2)
+		.attr('dy', '0.32em')
+		.text(identity);
+}
+
+function addBars(svg, x, y, keys, values, shift, color) {
+	const gap = gapSize / 2;
+	const getPercent = key => get('percent', findByKey(values, key)) || 0;
+	const getValue = key => get('value', findByKey(values, key)) || 0;
+	svg.selectAll('.bar')
+		.data(keys)
+		.enter()
+			.append('rect')
+				.attr('fill', color)
+				.attr('width', key => Math.round(x(getPercent(key))))
+				.attr('y', key => Math.round(y(key) + (shift > 0 ? barSize + gap : -gap)))
+				.attr('height', barSize)
+			.append('svg:title')
+				.text(getValue)
+	;
+	svg.selectAll('.bar')
+		.data(keys)
+		.enter()
+		.append('text')
+			.attr('font-size', fontSize)
+			.attr('fill', baseColor)
+			.attr('x', key => Math.round(x(getPercent(key))))
+			.attr('y', key => Math.round(y(key) + (shift > 0 ? barSize + gap : -gap)))
+			.attr('dx', 7)
+			.attr('dy', '0.9em')
+			.text(key => {
+				const value = d3.format('.0%')(getPercent(key));
+				return value === '0%' ? '' : value;
+			});
+}
+
+Promise.all([loadNpm(), loadSurvey()]).then(data => {
+	charts.forEach(({ key, title }) => {
+		addChart(data, key, title);
+	});
+});
+</script>
+</body>
